@@ -3,6 +3,9 @@ from chat import generate_sse_stream
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+import dotenv
+
+dotenv.load_dotenv()
 
 app = FastAPI(debug=True)
 

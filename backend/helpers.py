@@ -4,8 +4,12 @@ import re
 from langchain_chroma import Chroma
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 import os
+from typing import Any
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+DOCS_DIR = Path(__file__).parent / "docs"
+DOCS_DIR.mkdir(parents=True, exist_ok=True)
 
 headers_to_split = [("#", "document_title"), ("##", "section")]
 
@@ -34,8 +38,6 @@ def chunk_documents(folder_path: Path):
     for file_path in files:
         text = file_path.read_text(encoding="utf-8")
         chunks = text_splitter.split_text(text)
-        # match = re.search(r"Applies to:\*\*?\s*(.*?)\s*(?=\*\*?\w+:|$)", chunks[0].page_content, re.IGNORECASE)
-        # applies_to = match.group(1).strip() if match else None
         metadata = extract_document_metadata(chunks[0].page_content)
         for chunk in chunks[1:]:
             # if not chunk.metadata.get("section", None):
@@ -43,18 +45,35 @@ def chunk_documents(folder_path: Path):
             section = chunk.metadata.get("section", "Not specified")
             content = f"""
 Document Title: {title}
-
-Section: {section}
-
-Content: {chunk.page_content}
-
 Applies to: {metadata.get("applies_to", "Not specified")}
+Section: {section}
+Content: {chunk.page_content}
 """.replace("###", "").replace("**", "").strip()
             chunk.metadata = {**chunk.metadata, **metadata}
             chunk.page_content = process_chunk(content)
             all_chunks.append(chunk)
     return all_chunks
 
+
+def chunk_document(file_path:Path):
+    all_chunks = []
+    text = file_path.read_text(encoding="utf-8")
+    chunks = text_splitter.split_text(text)
+    metadata = extract_document_metadata(chunks[0].page_content)
+    source = file_path.name
+    for chunk in chunks[1:]:
+        title = chunk.metadata.get("document_title", file_path.stem)
+        section = chunk.metadata.get("section", "Not specified")
+        content = f"""
+Document Title: {title}
+Applies to: {metadata.get("applies_to", "Not specified")}
+Section: {section}
+Content: {chunk.page_content}
+""".replace("###", "").replace("**", "").strip()
+        chunk.metadata = {**chunk.metadata, **metadata, "source": source}
+        chunk.page_content = process_chunk(content)
+        all_chunks.append(chunk)
+    return all_chunks
 
 def is_separator(line:str):
     stripped = line.strip()
@@ -100,6 +119,7 @@ def process_chunk(chunk_text:str):
         new_chunk_lines.append(formatted_table)
     return '\n'.join(new_chunk_lines)
 
+
 embedding_model = HuggingFaceEmbeddings(
     model_name="BAAI/bge-base-en-v1.5",
     model_kwargs={'device': 'cuda'},
@@ -112,7 +132,89 @@ vector_store = Chroma(
     persist_directory="./chroma_db"
 )
 
-path = Path("./docs")
-chunks = chunk_documents(path)
 
-vector_store.add_documents(chunks)
+def main():
+    path = Path("./docs")
+    chunks = chunk_documents(path)
+    vector_store.add_documents(chunks)
+# from transformers import AutoTokenizer
+
+# def count_bge_tokens(text: str, model_id: str = "BAAI/bge-base-en-v1.5") -> int:
+#     # Load the tokenizer from Hugging Face
+#     tokenizer = AutoTokenizer.from_pretrained(model_id)
+    
+#     # Encode the text to token IDs and return the count
+#     tokens = tokenizer.encode(text, add_special_tokens=True)
+#     return len(tokens)
+
+# # Example text chunk
+# for chunk in chunks:
+#     l = count_bge_tokens(chunk.page_content)
+#     print("size=", l)
+
+
+def add_document(filename:str, content:str):
+    file_path = DOCS_DIR / filename
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    chunks = chunk_document(file_path)
+    vector_store.add_documents(chunks)
+    return len(chunks)
+
+def remove_document(filename: str) -> bool:
+
+    file_path = DOCS_DIR / filename
+    if file_path.exists():
+        try:
+            file_path.unlink(missing_ok=True)
+        except Exception as e:
+            print(f"Error removing file {filename}: {e}")
+
+    try:
+        vector_store._collection.delete(where={"source": filename})
+    except Exception as e:
+        print(f"Error deleting Chroma entries for {filename}: {e}")
+    return True
+
+def list_stored_documents() -> list[dict[str, Any]]:
+    docs = []
+    if not DOCS_DIR.exists():
+        return docs
+
+    col_data = {}
+    try:
+        col_res = vector_store._collection.get(include=["metadatas"])
+        if col_res and "metadatas" in col_res:
+            if col_res["metadatas"] is not None:
+                for meta in col_res["metadatas"]:
+                    if meta and "source" in meta:
+                        src = meta["source"]
+                        col_data[src] = col_data.get(src, 0) + 1
+    except Exception as e:
+        print(f"Error fetching collection metadatas: {e}")
+
+    for file_path in DOCS_DIR.glob("*"):
+        if file_path.is_file():
+            stat = file_path.stat()
+            chunk_count = col_data.get(file_path.name, 0)
+
+            title = file_path.stem.replace("-", " ").replace("_", " ").title()
+            try:
+                content_sample = file_path.read_text(encoding="utf-8")[:300]
+                meta = extract_document_metadata(content_sample)
+                if meta.get("document_title") and meta["document_title"] != "Unknown":
+                    title = meta["document_title"]
+            except Exception:
+                pass
+
+            docs.append({
+                "id": file_path.name,
+                "name": file_path.name,
+                "title": title,
+                "size_bytes": stat.st_size,
+                "chunks_count": chunk_count,
+                "modified_at": int(stat.st_mtime * 1000)
+            })
+
+    docs.sort(key=lambda d: d["modified_at"], reverse=True)
+    return docs

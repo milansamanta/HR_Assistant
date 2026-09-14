@@ -4,9 +4,12 @@ torch==2.14.0+cu126
 torchvision==0.29.0+cu126
 langchain-text-splitters==1.1.2
 langchain==1.4.0
+langchain-community>=0.3.0
 langchain-chroma==1.1.0
 langchain-core==1.6.2
 langchain-huggingface==1.2.2
 langchain-ollama==1.1.0
 fastapi==0.141.1
+python-multipart>=0.0.9
+rank_bm25>=0.2.2
 sentence-transformers==6.0.1

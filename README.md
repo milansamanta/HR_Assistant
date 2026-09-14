@@ -23,7 +23,7 @@ flowchart TD
         API_Chat["POST /api/send_message"]
         API_List["GET /api/documents"]
         API_Upload["POST /api/documents/upload"]
-        API_Delete["DELETE /api/documents/{filename}"]
+        API_Delete["DELETE /api/documents/filename"]
         DocService["Document Service (document_service.py)"]
         Streamer["SSE Stream Generator"]
         MultiQuery["Multi-Query Expansion"]
@@ -48,7 +48,7 @@ flowchart TD
 
     UserUI -->|POST /api/send_message| API_Chat
     AdminUI -->|POST /api/documents/upload| API_Upload
-    AdminUI -->|DELETE /api/documents/{filename}| API_Delete
+    AdminUI -->|DELETE /api/documents/filename| API_Delete
     AdminUI -->|GET /api/documents| API_List
 
     API_Upload --> DocService

@@ -1,10 +1,19 @@
 import { useState, useRef, useEffect } from 'react';
 import type { FC, FormEvent } from 'react';
-import { Send, Plus, Bot, User as UserIcon, Sparkles, AlertCircle, RefreshCw } from 'lucide-react';
+import { Send, Plus, Bot, User as UserIcon, Sparkles, AlertCircle, RefreshCw, BookOpen, Quote } from 'lucide-react';
+
+interface CitationSource {
+  id: number;
+  title: string;
+  source: string;
+  section: string;
+  quote?: string;
+}
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
+  sources?: CitationSource[];
 }
 
 interface ChatInterfaceProps {
@@ -46,7 +55,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({ role }) => {
     setIsLoading(true);
 
     const userMessage: Message = { role: 'user', content: text };
-    setMessages((prev) => [...prev, userMessage, { role: 'assistant', content: '' }]);
+    setMessages((prev) => [...prev, userMessage, { role: 'assistant', content: '', sources: [] }]);
     setInput('');
 
     try {
@@ -81,7 +90,19 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({ role }) => {
           if (data === '<DONE>') break;
           try {
             const parsed = JSON.parse(data);
-            if (parsed.token) {
+            if (parsed.sources) {
+              // Received Pydantic citation metadata packet
+              setMessages((prev) => {
+                const updated = [...prev];
+                const lastIdx = updated.length - 1;
+                updated[lastIdx] = {
+                  ...updated[lastIdx],
+                  sources: parsed.sources
+                };
+                return updated;
+              });
+            } else if (parsed.token) {
+              // Received streamed token
               setMessages((prev) => {
                 const updated = [...prev];
                 const lastIdx = updated.length - 1;
@@ -188,20 +209,57 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({ role }) => {
               {msg.role === 'user' ? <UserIcon size={16} /> : <Bot size={16} />}
             </div>
 
-            {/* Bubble */}
-            <div
-              className={`max-w-2xl rounded-2xl p-4 text-sm leading-relaxed whitespace-pre-wrap ${
-                msg.role === 'user'
-                  ? 'bg-blue-600 text-white rounded-tr-none'
-                  : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-tl-none shadow-sm'
-              }`}
-            >
-              {msg.content ? (
-                msg.content
-              ) : (
-                <div className="flex items-center gap-2 text-slate-400 py-1">
-                  <RefreshCw size={14} className="animate-spin text-blue-400" />
-                  <span className="text-xs">Searching policy chunks & generating response...</span>
+            {/* Bubble & Citations Container */}
+            <div className="space-y-2.5 max-w-2xl">
+              <div
+                className={`rounded-2xl p-4 text-sm leading-relaxed whitespace-pre-wrap ${
+                  msg.role === 'user'
+                    ? 'bg-blue-600 text-white rounded-tr-none'
+                    : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-tl-none shadow-sm'
+                }`}
+              >
+                {msg.content ? (
+                  msg.content
+                ) : (
+                  <div className="flex items-center gap-2 text-slate-400 py-1">
+                    <RefreshCw size={14} className="animate-spin text-blue-400" />
+                    <span className="text-xs">Searching policy chunks & generating response...</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Verified Citations Component */}
+              {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
+                <div className="p-3.5 bg-slate-900/80 border border-slate-800 rounded-xl space-y-2">
+                  <div className="text-[11px] font-semibold text-purple-400 flex items-center gap-1.5 uppercase tracking-wider">
+                    <BookOpen size={13} /> Document Citations ({msg.sources.length}):
+                  </div>
+                  <div className="space-y-1.5">
+                    {msg.sources.map((src) => (
+                      <div
+                        key={src.id}
+                        className="p-2 rounded-lg bg-slate-950/70 border border-slate-800/80 text-xs text-slate-300 space-y-1"
+                      >
+                        <div className="flex items-center justify-between font-medium">
+                          <span className="text-purple-300 font-semibold">
+                            [{src.id}] {src.title}
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-mono px-1.5 py-0.5 bg-slate-900 rounded border border-slate-800">
+                            {src.source}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-400">
+                          Section: <span className="text-slate-300">{src.section}</span>
+                        </div>
+                        {src.quote && (
+                          <div className="text-[11px] text-slate-400 italic bg-purple-500/5 border-l-2 border-purple-500/40 pl-2 py-0.5 flex items-start gap-1">
+                            <Quote size={10} className="shrink-0 text-purple-400 mt-0.5" />
+                            <span>"{src.quote}"</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

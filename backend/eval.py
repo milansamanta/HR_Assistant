@@ -1,10 +1,8 @@
 from chat import retrieve_multi_query, chain
-from helpers import embedding_model
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 import os
 from pydantic import BaseModel, Field
-from langchain_core.output_parsers import PydanticOutputParser
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 

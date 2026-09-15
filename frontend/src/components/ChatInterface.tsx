@@ -40,7 +40,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({ role }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
   };
 
   useEffect(() => {
@@ -75,48 +75,68 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({ role }) => {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let isStreamFinished = false;
+
+      const processLine = (line: string) => {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) return false;
+        const data = trimmed.replace(/^data:\s*/, '').trim();
+        if (data === '<DONE>') {
+          return true;
+        }
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.sources && Array.isArray(parsed.sources)) {
+            setMessages((prev) => {
+              const updated = [...prev];
+              const lastIdx = updated.length - 1;
+              if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
+                updated[lastIdx] = {
+                  ...updated[lastIdx],
+                  sources: parsed.sources
+                };
+              }
+              return updated;
+            });
+          } else if (parsed.token !== undefined) {
+            setMessages((prev) => {
+              const updated = [...prev];
+              const lastIdx = updated.length - 1;
+              if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
+                updated[lastIdx] = {
+                  ...updated[lastIdx],
+                  content: updated[lastIdx].content + parsed.token
+                };
+              }
+              return updated;
+            });
+          }
+        } catch (err) {
+          console.error('SSE JSON Parse error:', err, 'Raw data:', data);
+        }
+        return false;
+      };
 
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
+
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('<end>');
         buffer = lines.pop() || '';
 
         for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data: ')) continue;
-          const data = trimmed.replace(/^data:\s*/, '');
-          if (data === '<DONE>') break;
-          try {
-            const parsed = JSON.parse(data);
-            if (parsed.sources) {
-              // Received Pydantic citation metadata packet
-              setMessages((prev) => {
-                const updated = [...prev];
-                const lastIdx = updated.length - 1;
-                updated[lastIdx] = {
-                  ...updated[lastIdx],
-                  sources: parsed.sources
-                };
-                return updated;
-              });
-            } else if (parsed.token) {
-              // Received streamed token
-              setMessages((prev) => {
-                const updated = [...prev];
-                const lastIdx = updated.length - 1;
-                updated[lastIdx] = {
-                  ...updated[lastIdx],
-                  content: updated[lastIdx].content + parsed.token
-                };
-                return updated;
-              });
-            }
-          } catch (err) {
-            console.error('SSE JSON Parse error:', err);
+          if (processLine(line)) {
+            isStreamFinished = true;
+            break;
           }
         }
+
+        if (isStreamFinished) break;
+      }
+
+      if (buffer.trim() && !isStreamFinished) {
+        processLine(buffer);
       }
     } catch (err: any) {
       console.error('Chat error:', err);
@@ -124,7 +144,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({ role }) => {
       setMessages((prev) => {
         const updated = [...prev];
         const lastIdx = updated.length - 1;
-        if (updated[lastIdx].role === 'assistant' && updated[lastIdx].content === '') {
+        if (lastIdx >= 0 && updated[lastIdx].role === 'assistant' && updated[lastIdx].content === '') {
           updated[lastIdx] = {
             role: 'assistant',
             content: '⚠️ Failed to get a response from the policy engine. Please check backend connection.'

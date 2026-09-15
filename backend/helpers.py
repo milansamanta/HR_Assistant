@@ -8,8 +8,7 @@ from typing import Any
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
-DOCS_DIR = Path(__file__).parent / "docs"
-DOCS_DIR.mkdir(parents=True, exist_ok=True)
+DOCS_DIR = Path("./docs")
 
 headers_to_split = [("#", "document_title"), ("##", "section")]
 
@@ -18,6 +17,7 @@ text_splitter = MarkdownHeaderTextSplitter(headers_to_split, strip_headers=True)
 def extract_document_metadata(text: str):
 
     metadata: dict[str, str] = {}
+    
     patterns = {
         "document_title": r"\*\*Document title:\*\*\s*(.+)",
         "version": r"\*\*Version:\*\*\s*(.+)",
@@ -36,6 +36,7 @@ def chunk_documents(folder_path: Path):
     all_chunks = []
 
     for file_path in files:
+        source = file_path.name
         text = file_path.read_text(encoding="utf-8")
         chunks = text_splitter.split_text(text)
         metadata = extract_document_metadata(chunks[0].page_content)
@@ -49,7 +50,7 @@ Applies to: {metadata.get("applies_to", "Not specified")}
 Section: {section}
 Content: {chunk.page_content}
 """.replace("###", "").replace("**", "").strip()
-            chunk.metadata = {**chunk.metadata, **metadata}
+            chunk.metadata = {**chunk.metadata, **metadata, "source": source}
             chunk.page_content = process_chunk(content)
             all_chunks.append(chunk)
     return all_chunks
@@ -134,8 +135,7 @@ vector_store = Chroma(
 
 
 def main():
-    path = Path("./docs")
-    chunks = chunk_documents(path)
+    chunks = chunk_documents(DOCS_DIR)
     vector_store.add_documents(chunks)
 # from transformers import AutoTokenizer
 
